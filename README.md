@@ -91,9 +91,31 @@ Required environment variables:
 
 ### Claude Desktop
 
-#### Option 1: Using Published Server (Recommended)
+#### Option 1: CLIProxyAPI (this fork)
 
 Add to your `claude_desktop_config.json`:
+
+```json
+{
+  "mcpServers": {
+    "nanobanana": {
+      "command": "python3",
+      "args": ["-m", "nanobanana_mcp_server.server"],
+      "env": {
+        "CLIPROXY_BASE_URL": "http://127.0.0.1:8318",
+        "CLIPROXY_API_KEY": "sk-your-cli-proxy-key",
+        "NANOBANANA_MODEL": "pro",
+        "NO_PROXY": "127.0.0.1,localhost"
+      }
+    }
+  }
+}
+```
+
+> If you are running from source, you can use `uv run python -m nanobanana_mcp_server.server`
+> and set `cwd` to your local repository.
+
+#### Option 2: Upstream PyPI (Gemini direct only)
 
 ```json
 {
@@ -109,32 +131,7 @@ Add to your `claude_desktop_config.json`:
 }
 ```
 
-#### Option 2: Using Local Source (Development)
-
-If you are running from source code, point to your local installation:
-
-```json
-{
-  "mcpServers": {
-    "nanobanana-local": {
-      "command": "uv",
-      "args": [
-        "run",
-        "python",
-        "-m",
-        "nanobanana_mcp_server.server"
-      ],
-      "cwd": "/absolute/path/to/nanobanana-mcp-server",
-      "env": {
-        "GEMINI_API_KEY": "your-gemini-api-key-here"
-      }
-    }
-  }
-}
-```
-
-
-#### Option 3: Using Vertex AI (ADC)
+#### Option 3: Using Vertex AI (ADC) (Upstream only)
 
 To authenticate with Google Cloud Application Default Credentials (instead of an API Key):
 
@@ -170,13 +167,18 @@ Install and configure in VS Code:
    ```json
    {
      "name": "nanobanana",
-     "command": "uvx",
-     "args": ["nanobanana-mcp-server@latest"],
+     "command": "python3",
+     "args": ["-m", "nanobanana_mcp_server.server"],
      "env": {
-       "GEMINI_API_KEY": "your-gemini-api-key-here"
+       "CLIPROXY_BASE_URL": "http://127.0.0.1:8318",
+       "CLIPROXY_API_KEY": "sk-your-cli-proxy-key",
+       "NANOBANANA_MODEL": "pro",
+       "NO_PROXY": "127.0.0.1,localhost"
      }
    }
    ```
+
+   > Upstream PyPI (Gemini direct) uses `uvx nanobanana-mcp-server@latest` and `GEMINI_API_KEY`.
 
 ### Cursor
 
@@ -186,15 +188,20 @@ Add to Cursor's MCP configuration:
 {
   "mcpServers": {
     "nanobanana": {
-      "command": "uvx",
-      "args": ["nanobanana-mcp-server@latest"],
+      "command": "python3",
+      "args": ["-m", "nanobanana_mcp_server.server"],
       "env": {
-        "GEMINI_API_KEY": "your-gemini-api-key-here"
+        "CLIPROXY_BASE_URL": "http://127.0.0.1:8318",
+        "CLIPROXY_API_KEY": "sk-your-cli-proxy-key",
+        "NANOBANANA_MODEL": "pro",
+        "NO_PROXY": "127.0.0.1,localhost"
       }
     }
   }
 }
 ```
+
+> Upstream PyPI (Gemini direct) uses `uvx nanobanana-mcp-server@latest` and `GEMINI_API_KEY`.
 
 ### Continue.dev (VS Code/JetBrains)
 
@@ -205,15 +212,20 @@ Add to your `config.json`:
   "mcpServers": [
     {
       "name": "nanobanana",
-      "command": "uvx",
-      "args": ["nanobanana-mcp-server@latest"],
+      "command": "python3",
+      "args": ["-m", "nanobanana_mcp_server.server"],
       "env": {
-        "GEMINI_API_KEY": "your-gemini-api-key-here"
+        "CLIPROXY_BASE_URL": "http://127.0.0.1:8318",
+        "CLIPROXY_API_KEY": "sk-your-cli-proxy-key",
+        "NANOBANANA_MODEL": "pro",
+        "NO_PROXY": "127.0.0.1,localhost"
       }
     }
   ]
 }
 ```
+
+> Upstream PyPI (Gemini direct) uses `uvx nanobanana-mcp-server@latest` and `GEMINI_API_KEY`.
 
 ### Open WebUI
 
@@ -223,26 +235,33 @@ Configure in Open WebUI settings:
 {
   "mcp_servers": {
     "nanobanana": {
-      "command": ["uvx", "nanobanana-mcp-server@latest"],
+      "command": ["python3", "-m", "nanobanana_mcp_server.server"],
       "env": {
-        "GEMINI_API_KEY": "your-gemini-api-key-here"
+        "CLIPROXY_BASE_URL": "http://127.0.0.1:8318",
+        "CLIPROXY_API_KEY": "sk-your-cli-proxy-key",
+        "NANOBANANA_MODEL": "pro",
+        "NO_PROXY": "127.0.0.1,localhost"
       }
     }
   }
 }
 ```
 
+> Upstream PyPI (Gemini direct) uses `["uvx", "nanobanana-mcp-server@latest"]` and `GEMINI_API_KEY`.
+
 ### Gemini CLI / Generic MCP Client
 
 ```bash
-# Set environment variable
+# CLIProxyAPI (this fork)
+export CLIPROXY_BASE_URL="http://127.0.0.1:8318"
+export CLIPROXY_API_KEY="sk-your-cli-proxy-key"
+export NANOBANANA_MODEL="pro"
+export NO_PROXY="127.0.0.1,localhost"
+python3 -m nanobanana_mcp_server.server
+
+# Upstream PyPI (Gemini direct)
 export GEMINI_API_KEY="your-gemini-api-key-here"
-
-# Run server in stdio mode
 uvx nanobanana-mcp-server@latest
-
-# Or with pip installation
-python -m nanobanana_mcp_server.server
 ```
 
 ### CLIProxyAPI Mode (Gemini-Compatible Proxy) ⭐ NEW
