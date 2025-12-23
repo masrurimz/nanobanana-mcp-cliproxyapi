@@ -41,6 +41,9 @@ class ServerConfig:
     """Server configuration settings."""
 
     gemini_api_key: str | None = None
+    cliproxy_base_url: str | None = None
+    cliproxy_api_key: str | None = None
+    cliproxy_config_path: str | None = None
     server_name: str = "nanobanana-mcp-server"
     transport: str = "stdio"  # stdio or http
     host: str = "127.0.0.1"
@@ -65,25 +68,32 @@ class ServerConfig:
             auth_method = AuthMethod.AUTO
 
         api_key = os.getenv("GEMINI_API_KEY") or os.getenv("GOOGLE_API_KEY")
+        cliproxy_base_url = os.getenv("CLIPROXY_BASE_URL") or os.getenv("CLIPROXY_API_BASE")
+        cliproxy_api_key = os.getenv("CLIPROXY_API_KEY")
+        cliproxy_config_path = os.getenv("CLIPROXY_CONFIG")
         gcp_project = os.getenv("GCP_PROJECT_ID") or os.getenv("GOOGLE_CLOUD_PROJECT")
         gcp_region = os.getenv("GCP_REGION") or os.getenv("GOOGLE_CLOUD_LOCATION") or "us-central1"
 
         # Validation logic
-        if auth_method == AuthMethod.API_KEY:
-            if not api_key:
-                raise ValueError(AUTH_ERROR_MESSAGES["api_key_required"])
-        
-        elif auth_method == AuthMethod.VERTEX_AI:
-            if not gcp_project:
-                raise ADCConfigurationError(AUTH_ERROR_MESSAGES["vertex_ai_project_required"])
-        
-        else:  # AUTO
-            if not api_key:
+        if cliproxy_base_url:
+            # CLIProxyAPI mode: skip Gemini auth validation
+            auth_method = AuthMethod.API_KEY
+        else:
+            if auth_method == AuthMethod.API_KEY:
+                if not api_key:
+                    raise ValueError(AUTH_ERROR_MESSAGES["api_key_required"])
+
+            elif auth_method == AuthMethod.VERTEX_AI:
                 if not gcp_project:
-                    raise ValueError(AUTH_ERROR_MESSAGES["no_auth_configured"])
-                auth_method = AuthMethod.VERTEX_AI
-            else:
-                auth_method = AuthMethod.API_KEY
+                    raise ADCConfigurationError(AUTH_ERROR_MESSAGES["vertex_ai_project_required"])
+
+            else:  # AUTO
+                if not api_key:
+                    if not gcp_project:
+                        raise ValueError(AUTH_ERROR_MESSAGES["no_auth_configured"])
+                    auth_method = AuthMethod.VERTEX_AI
+                else:
+                    auth_method = AuthMethod.API_KEY
 
         # Handle image output directory
         output_dir = os.getenv("IMAGE_OUTPUT_DIR", "").strip()
@@ -97,6 +107,9 @@ class ServerConfig:
 
         return cls(
             gemini_api_key=api_key,
+            cliproxy_base_url=cliproxy_base_url,
+            cliproxy_api_key=cliproxy_api_key,
+            cliproxy_config_path=cliproxy_config_path,
             auth_method=auth_method,
             gcp_project_id=gcp_project,
             gcp_region=gcp_region,

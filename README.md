@@ -377,6 +377,14 @@ NANOBANANA_AUTH_METHOD=vertex_ai
 GCP_PROJECT_ID=your-project-id
 GCP_REGION=us-central1
 
+# Method 3: CLIProxyAPI (local OAuth/proxy)
+# When CLIPROXY_BASE_URL is set, the server uses CLIProxyAPI instead of Google SDK.
+CLIPROXY_BASE_URL=http://127.0.0.1:8318
+# Provide API key directly or point to CLIProxyAPI config.yaml
+CLIPROXY_API_KEY=sk-your-cli-proxy-key
+# or:
+CLIPROXY_CONFIG=/root/cliproxyapi/config.yaml
+
 # Model Selection (optional)
 NANOBANANA_MODEL=auto  # Options: flash, pro, auto (default: auto)
 
@@ -385,6 +393,11 @@ IMAGE_OUTPUT_DIR=/path/to/image/directory  # Default: ~/nanobanana-images
 LOG_LEVEL=INFO                             # DEBUG, INFO, WARNING, ERROR
 LOG_FORMAT=standard                        # standard, json, detailed
 ```
+
+**CLIProxyAPI mode notes**
+- Uses CLIProxyAPI's Gemini-compatible `/v1beta/models/{model}:generateContent`.
+- Gemini Files API features are not available (file_id upload / retrieval disabled).
+- Local file editing (`input_image_path_*`) still works.
 
 ## 🐛 Troubleshooting
 

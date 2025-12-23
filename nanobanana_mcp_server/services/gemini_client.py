@@ -1,6 +1,9 @@
 import base64
 import logging
+import os
 from typing import Any
+
+import requests
 
 from google import genai
 from google.genai import types as gx
@@ -28,10 +31,22 @@ class GeminiClient:
         self.gemini_config = gemini_config
         self.logger = logging.getLogger(__name__)
         self._client = None
+        self._cliproxy_base_url = (
+            self.config.cliproxy_base_url
+            or os.getenv("CLIPROXY_BASE_URL")
+            or os.getenv("CLIPROXY_API_BASE")
+        )
+        self._cliproxy_api_key = self.config.cliproxy_api_key or os.getenv("CLIPROXY_API_KEY")
+        self._cliproxy_config_path = (
+            self.config.cliproxy_config_path or os.getenv("CLIPROXY_CONFIG")
+        )
+        self._use_cliproxy = bool(self._cliproxy_base_url)
 
     @property
     def client(self) -> genai.Client:
         """Lazy initialization of Gemini client."""
+        if self._use_cliproxy:
+            raise AuthenticationError("Gemini client is disabled in CLIProxyAPI mode")
         if self._client is None:
             if self.config.auth_method == AuthMethod.API_KEY:
                 if not self.config.gemini_api_key:
@@ -57,6 +72,8 @@ class GeminiClient:
         Note: This makes an API call, so use sparingly.
         """
         try:
+            if self._use_cliproxy:
+                return True
             # Lightweight API call
             _ = self.client.models.list()
             return True
@@ -71,6 +88,20 @@ class GeminiClient:
 
         if len(images_b64) != len(mime_types):
             raise ValueError(f"Images and MIME types count mismatch: {len(images_b64)} vs {len(mime_types)}")
+
+        if self._use_cliproxy:
+            parts = []
+            for i, (b64, mime_type) in enumerate(zip(images_b64, mime_types, strict=False)):
+                if not b64 or not mime_type:
+                    self.logger.warning(f"Skipping empty image or MIME type at index {i}")
+                    continue
+                parts.append({
+                    "inlineData": {
+                        "data": b64,
+                        "mimeType": mime_type
+                    }
+                })
+            return parts
 
         parts = []
         for i, (b64, mime_type) in enumerate(zip(images_b64, mime_types, strict=False)):
@@ -111,6 +142,8 @@ class GeminiClient:
             API response object
         """
         try:
+            if self._use_cliproxy:
+                return self._cliproxy_generate_content(contents, config, aspect_ratio)
             # Remove unsupported request_options parameter
             kwargs.pop("request_options", None)
 
@@ -218,6 +251,22 @@ class GeminiClient:
     def extract_images(self, response) -> list[bytes]:
         """Extract image bytes from Gemini response."""
         images = []
+        if isinstance(response, dict):
+            candidates = response.get("candidates") or []
+            for candidate in candidates:
+                content = candidate.get("content") or {}
+                parts = content.get("parts") or []
+                for part in parts:
+                    inline = part.get("inlineData") or part.get("inline_data")
+                    if inline and inline.get("data"):
+                        try:
+                            images.append(base64.b64decode(inline["data"]))
+                        except Exception:
+                            data = inline.get("data")
+                            if isinstance(data, (bytes, bytearray)):
+                                images.append(bytes(data))
+            return images
+
         candidates = getattr(response, "candidates", None)
         if not candidates or len(candidates) == 0:
             return images
@@ -241,6 +290,8 @@ class GeminiClient:
         Gemini Files API does not support display_name parameter in upload.
         """
         try:
+            if self._use_cliproxy:
+                raise AuthenticationError("Files API is not available in CLIProxyAPI mode")
             # Gemini Files API only accepts file parameter
             return self.client.files.upload(file=file_path)
         except Exception as e:
@@ -250,7 +301,144 @@ class GeminiClient:
     def get_file_metadata(self, file_name: str):
         """Get file metadata from Gemini Files API."""
         try:
+            if self._use_cliproxy:
+                raise AuthenticationError("Files API is not available in CLIProxyAPI mode")
             return self.client.files.get(name=file_name)
         except Exception as e:
             self.logger.error(f"File metadata error: {e}")
             raise
+
+    def _cliproxy_generate_content(
+        self,
+        contents: list,
+        config: dict[str, Any] | None,
+        aspect_ratio: str | None,
+    ) -> dict:
+        base_url = (self._cliproxy_base_url or "").rstrip("/")
+        if not base_url:
+            raise AuthenticationError("CLIPROXY_BASE_URL is required for CLIProxyAPI mode")
+
+        api_key = self._get_cliproxy_api_key()
+        if not api_key:
+            raise AuthenticationError("CLIPROXY_API_KEY or CLIPROXY_CONFIG is required")
+
+        parts = self._cliproxy_parts_from_contents(contents)
+        payload: dict[str, Any] = {
+            "contents": [{"parts": parts}],
+            "generationConfig": {
+                "responseModalities": ["TEXT", "IMAGE"],
+            },
+        }
+
+        if aspect_ratio:
+            payload["generationConfig"]["imageConfig"] = {
+                "aspectRatio": aspect_ratio
+            }
+
+        _ = config  # reserved for future mapping
+
+        url = f"{base_url}/v1beta/models/{self.gemini_config.model_name}:generateContent"
+        self.logger.debug(f"Calling CLIProxyAPI: {url}")
+
+        response = requests.post(
+            url,
+            headers={
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+            },
+            json=payload,
+            timeout=self.gemini_config.request_timeout,
+        )
+        if not response.ok:
+            raise RuntimeError(
+                f"CLIProxyAPI error {response.status_code}: {response.text[:500]}"
+            )
+        return response.json()
+
+    def _cliproxy_parts_from_contents(self, contents: list) -> list[dict[str, Any]]:
+        parts: list[dict[str, Any]] = []
+        for item in contents:
+            if isinstance(item, str):
+                parts.append({"text": item})
+                continue
+
+            if isinstance(item, dict):
+                if "text" in item and isinstance(item.get("text"), str):
+                    parts.append({"text": item["text"]})
+                    continue
+
+                if "inlineData" in item:
+                    inline = item["inlineData"]
+                    parts.append({
+                        "inlineData": {
+                            "data": inline.get("data"),
+                            "mimeType": inline.get("mimeType") or inline.get("mime_type"),
+                        }
+                    })
+                    continue
+
+                if "inline_data" in item:
+                    inline = item["inline_data"]
+                    parts.append({
+                        "inlineData": {
+                            "data": inline.get("data"),
+                            "mimeType": inline.get("mimeType") or inline.get("mime_type"),
+                        }
+                    })
+                    continue
+
+                if "fileData" in item:
+                    parts.append({"fileData": item["fileData"]})
+                    continue
+
+                if "file_data" in item:
+                    parts.append({"fileData": item["file_data"]})
+                    continue
+
+            inline_data = getattr(item, "inline_data", None)
+            if inline_data and hasattr(inline_data, "data"):
+                data = inline_data.data
+                if isinstance(data, (bytes, bytearray)):
+                    data = base64.b64encode(data).decode("utf-8")
+                parts.append(
+                    {
+                        "inlineData": {
+                            "data": data,
+                            "mimeType": getattr(inline_data, "mime_type", None)
+                            or getattr(inline_data, "mimeType", None),
+                        }
+                    }
+                )
+                continue
+
+        return parts
+
+    def _get_cliproxy_api_key(self) -> str | None:
+        if self._cliproxy_api_key:
+            return self._cliproxy_api_key
+
+        if not self._cliproxy_config_path:
+            return None
+
+        try:
+            with open(self._cliproxy_config_path, "r", encoding="utf-8") as f:
+                lines = f.read().splitlines()
+        except Exception:
+            return None
+
+        in_keys = False
+        for line in lines:
+            if not in_keys and line.strip() == "api-keys:":
+                in_keys = True
+                continue
+            if not in_keys:
+                continue
+            if line and not line.startswith(" ") and not line.startswith("-"):
+                break
+            stripped = line.strip()
+            if not stripped.startswith("-"):
+                continue
+            value = stripped.lstrip("-").strip().strip('"').strip("'")
+            if value:
+                return value
+        return None
