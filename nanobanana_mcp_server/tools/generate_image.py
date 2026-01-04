@@ -207,7 +207,7 @@ def register_generate_image_tool(server: FastMCP):
                         "Edit mode with file_id supports only additional input images, not multiple primary inputs"
                     )
 
-            # Get enhanced image service (would be injected in real implementation)
+            # Get enhanced image service for edit operations (keeps Files API integration)
             enhanced_image_service = _get_enhanced_image_service()
 
             # Execute based on detected mode
@@ -258,16 +258,32 @@ def register_generate_image_tool(server: FastMCP):
 
                     logger.info(f"Loaded {len(input_images)} input images from file paths")
 
-                # Generate images following workflows.md pattern:
-                # M->G->FS->F->D (save full-res, create thumbnail, upload to Files API, track in DB)
-                thumbnail_images, metadata = enhanced_image_service.generate_images(
-                    prompt=prompt,
-                    n=n,
-                    negative_prompt=negative_prompt,
-                    system_instruction=system_instruction,
-                    input_images=input_images,
-                    aspect_ratio=aspect_ratio,
-                )
+                # Use the selected service (Pro or Flash) based on model selection
+                # This ensures CLIProxyAPI mode works correctly with Pro model
+                if selected_tier == ModelTier.PRO:
+                    # Use Pro service with Pro-specific parameters
+                    logger.info("Using Pro image service for generation")
+                    thumbnail_images, metadata = selected_service.generate_images(
+                        prompt=prompt,
+                        n=n,
+                        resolution=resolution,
+                        thinking_level=ThinkingLevel(thinking_level) if thinking_level else None,
+                        enable_grounding=enable_grounding,
+                        negative_prompt=negative_prompt,
+                        system_instruction=system_instruction,
+                        input_images=input_images,
+                    )
+                else:
+                    # Use Flash service (ImageService) with Flash-compatible parameters
+                    logger.info("Using Flash image service for generation")
+                    thumbnail_images, metadata = selected_service.generate_images(
+                        prompt=prompt,
+                        n=n,
+                        negative_prompt=negative_prompt,
+                        system_instruction=system_instruction,
+                        input_images=input_images,
+                        aspect_ratio=aspect_ratio,
+                    )
 
             # Create response with file paths and thumbnails
             if metadata:
