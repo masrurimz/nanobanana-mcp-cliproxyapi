@@ -207,23 +207,56 @@ def register_generate_image_tool(server: FastMCP):
                         "Edit mode with file_id supports only additional input images, not multiple primary inputs"
                     )
 
-            # Get enhanced image service for edit operations (keeps Files API integration)
+            # Get enhanced image service for edit operations with Files API (Flash only)
             enhanced_image_service = _get_enhanced_image_service()
 
             # Execute based on detected mode
             if detected_mode == "edit" and file_id:
-                # Edit by file_id following workflows.md sequence
+                # Edit by file_id - only supported with enhanced_image_service (Flash)
+                # TODO: Add Pro support for file_id editing
                 logger.info(f"Edit mode: using file_id {file_id}")
                 thumbnail_images, metadata = enhanced_image_service.edit_image_by_file_id(
                     file_id=file_id, edit_prompt=prompt
                 )
 
             elif detected_mode == "edit" and input_image_paths and len(input_image_paths) == 1:
-                # Edit by file path
+                # Edit by file path - use selected service (Pro or Flash)
                 logger.info(f"Edit mode: using file path {input_image_paths[0]}")
-                thumbnail_images, metadata = enhanced_image_service.edit_image_by_path(
-                    instruction=prompt, file_path=input_image_paths[0]
-                )
+                
+                # Read the image file
+                with open(input_image_paths[0], "rb") as f:
+                    image_bytes = f.read()
+                
+                # Detect MIME type
+                edit_mime_type, _ = mimetypes.guess_type(input_image_paths[0])
+                if not edit_mime_type or not edit_mime_type.startswith("image/"):
+                    edit_mime_type = "image/png"
+                
+                # Convert to base64
+                edit_base64 = base64.b64encode(image_bytes).decode("utf-8")
+                
+                if selected_tier == ModelTier.PRO:
+                    # Use Pro service for editing
+                    logger.info("Using Pro image service for editing")
+                    thumbnail_images, count = selected_service.edit_image(
+                        instruction=prompt,
+                        base_image_b64=edit_base64,
+                        mime_type=edit_mime_type,
+                        thinking_level=ThinkingLevel(thinking_level) if thinking_level else None,
+                    )
+                    # Pro edit_image returns (images, count), need to create metadata
+                    metadata = [{
+                        "model": "gemini-3-pro-image-preview",
+                        "model_tier": "pro",
+                        "mode": "edit",
+                        "source_path": input_image_paths[0],
+                    }] if thumbnail_images else []
+                else:
+                    # Use Flash service via enhanced_image_service
+                    logger.info("Using Flash image service for editing")
+                    thumbnail_images, metadata = enhanced_image_service.edit_image_by_path(
+                        instruction=prompt, file_path=input_image_paths[0]
+                    )
 
             else:
                 # Generation mode (with optional input images for conditioning)
